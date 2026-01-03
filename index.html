@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asistente de Brainstorming Privado</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script type="module" src="main.js"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar: Documents & RAG -->
+        <aside class="sidebar glass-panel">
+            <div class="brand">
+                <div class="logo-icon">🧠</div>
+                <h1>Cortex<span class="highlight">Local</span></h1>
+            </div>
+
+            <div class="section-header">
+                <h2>Documentos</h2>
+                <span class="badge" id="doc-count">0</span>
+            </div>
+
+            <div class="drop-zone" id="drop-zone">
+                <div class="icon">📄</div>
+                <p>Arrastra PDFs o haz clic aquí</p>
+                <input type="file" id="file-input" accept=".pdf" style="display: none;">
+            </div>
+
+            <div class="document-list" id="document-list">
+                <!-- Document items will go here -->
+            </div>
+
+            <div class="status-monitor glass-panel-inset">
+                <h3>Estado del Sistema</h3>
+                <div class="status-item">
+                    <span>Transcripción (Whisper)</span>
+                    <span class="status-dot disconnected" id="status-whisper"></span>
+                </div>
+                <div class="status-item">
+                    <span>Agentes (LLM)</span>
+                    <span class="status-dot disconnected" id="status-llm"></span>
+                </div>
+                <div class="status-item">
+                    <span>Visión (Canvas)</span>
+                    <span class="status-dot disconnected" id="status-vision"></span>
+                </div>
+                <div class="progress-bar-container" id="progress-container" style="display:none;">
+                    <div class="progress-bar" id="progress-bar"></div>
+                    <span class="progress-text" id="progress-text">Cargando modelos...</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content: Chat & Transcription -->
+        <main class="main-content">
+            <header class="top-bar glass-panel">
+                <div class="meeting-controls">
+                    <button id="btn-mic" class="btn-icon" aria-label="Toggle Microphone">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                            <line x1="12" y1="19" x2="12" y2="23"></line>
+                            <line x1="8" y1="23" x2="16" y2="23"></line>
+                        </svg>
+                    </button>
+                    <div class="live-transcription">
+                        <span class="recording-indicator hidden">GRABANDO</span>
+                        <p id="live-caption" class="placeholder">Esperando voz...</p>
+                    </div>
+                </div>
+                <div class="hat-controls">
+                    <button class="btn-hat white" data-hat="white" title="Hechos (RAG)">⚪</button>
+                    <button class="btn-hat red" data-hat="red" title="Emociones">🔴</button>
+                    <button class="btn-hat black" data-hat="black" title="Riesgos">⚫</button>
+                    <button class="btn-hat yellow" data-hat="yellow" title="Optimismo">🟡</button>
+                    <button class="btn-hat green" data-hat="green" title="Creatividad">🟢</button>
+                    <button class="btn-hat blue" data-hat="blue" title="Proceso">🔵</button>
+                    <button class="btn-auto" id="btn-auto-hat">🤖 Auto-Facilitador</button>
+                </div>
+            </header>
+
+            <div class="content-split">
+                <!-- Chat Area -->
+                <div class="chat-column">
+                    <section class="chat-area" id="chat-stream">
+                        <div class="message system-message">
+                            <div class="avatar">🤖</div>
+                            <div class="bubble">
+                                Bienvenido a tu Sesión de Brainstorming Privada. Todo se ejecuta 100% localmente en tu
+                                navegador.
+                                <br><small>Sube un PDF o empieza a hablar para comenzar.</small>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div class="input-area glass-panel">
+                        <input type="text" id="user-input" placeholder="Escribe tu pregunta sobre los documentos...">
+                        <button id="btn-send" class="btn-icon small">➤</button>
+                    </div>
+                </div>
+
+                <!-- Canvas Toggle Button (Visible on mobile or when closed) -->
+                <button class="toggle-canvas" id="toggle-canvas">🎨</button>
+
+                <!-- Canvas Area -->
+                <section class="canvas-area glass-panel" id="canvas-panel">
+                    <div class="canvas-toolbar">
+                        <div class="tools">
+                            <button class="tool active" data-tool="pen">✏️</button>
+                            <button class="tool" data-tool="eraser">🧹</button>
+                            <button class="tool" data-tool="clear">🗑️</button>
+                        </div>
+                        <button id="btn-analyze-canvas" class="btn-primary">
+                            <span>👁️ Analizar</span>
+                        </button>
+                    </div>
+                    <canvas id="drawing-board"></canvas>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- External Libs -->
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+</body>
+
+</html>
