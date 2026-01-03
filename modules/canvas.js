@@ -73,11 +73,32 @@ export class CanvasModule {
         btn.innerHTML = "<span>👁️ Mirando...</span>";
         btn.disabled = true;
 
-        // Exportar a JPEG
+        // 1. Calcular los límites (Bounding Box)
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        this.fCanvas.getObjects().forEach(obj => {
+            const rect = obj.getBoundingRect();
+            if (rect.left < minX) minX = rect.left;
+            if (rect.top < minY) minY = rect.top;
+            if (rect.left + rect.width > maxX) maxX = rect.left + rect.width;
+            if (rect.top + rect.height > maxY) maxY = rect.top + rect.height;
+        });
+
+        // 2. Añadir padding y recortar
+        const padding = 20;
+        const cropLeft = Math.max(0, minX - padding);
+        const cropTop = Math.max(0, minY - padding);
+        const cropWidth = Math.min(this.fCanvas.width - cropLeft, (maxX - minX) + (padding * 2));
+        const cropHeight = Math.min(this.fCanvas.height - cropTop, (maxY - minY) + (padding * 2));
+
+        // 3. Exportar región específica
         const dataURL = this.fCanvas.toDataURL({
             format: 'jpeg',
-            quality: 0.8,
-            multiplier: 0.5
+            quality: 0.9,
+            multiplier: 1,
+            left: cropLeft,
+            top: cropTop,
+            width: cropWidth,
+            height: cropHeight
         });
 
         document.dispatchEvent(new CustomEvent('debug-image', { detail: dataURL }));

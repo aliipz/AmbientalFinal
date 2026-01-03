@@ -16,7 +16,7 @@ const btnMic = document.getElementById('btn-mic');
 const btnSend = document.getElementById('btn-send');
 const userInput = document.getElementById('user-input');
 
-// Controles
+// Controles Micrófono
 if (btnMic) {
     btnMic.addEventListener('click', () => {
         btnMic.classList.toggle('active');
@@ -30,138 +30,146 @@ if (btnMic) {
     });
 }
 
-const handleUserMessage = () => {
-    const text = userInput.value.trim();
+// Manejo de mensajes del usuario
+const handleUserMessage = (inputText = null) => {
+    const text = inputText || userInput.value.trim();
     if (!text) return;
 
+    // Solo limpiar input si fue escrito
+    if (!inputText) userInput.value = '';
+
     addMessageToChat('user', text);
-    userInput.value = '';
     agents.addToHistory('User', text);
 
-    // RAG: Buscar en docs si existen
+    // LÓGICA DEL ORQUESTADOR
+    // 1. Si está activo el modo "Auto", preguntamos al orquestador qué hacer
+    if (agents.isAutoMode) {
+        addMessageToChat('system', '🧠 Analizando intención...', 'info');
+        worker.postMessage({ type: 'classify_intent', data: { text: text } });
+        return; // Esperamos a que el worker decida el sombrero
+    }
+
+    // 2. Si hay documentos cargados, probamos RAG
     const hasDocuments = rag.documents.some(d => d.isReady);
     if (hasDocuments) {
         addMessageToChat('system', '🔍 Buscando en documentos...', 'info');
         worker.postMessage({ type: 'embed', data: text, id: `QUERY:${text}` });
     } else {
-        // Chat normal (Agente Azul)
-        worker.postMessage({
-            type: 'generate',
-            data: { prompt: `Usuario dice: "${text}". Responde útilmente en español:`, hat: 'blue' }
-        });
+        // 3. Chat por defecto (Azul/General)
+        agents.triggerHat('blue', text);
     }
 };
 
-if (btnSend) btnSend.addEventListener('click', handleUserMessage);
+if (btnSend) btnSend.addEventListener('click', () => handleUserMessage());
 if (userInput) userInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleUserMessage(); });
-
 
 // --- RESPUESTAS DEL WORKER ---
 worker.onmessage = (e) => {
-    const { status, task, type, text, percent, message, embedding, id, hat } = e.data;
+    const { status, task, type, text, percent, message, embedding, id, hat, confidence } = e.data;
 
-    // 1. BARRA DE PROGRESO
-    if (status === 'progress') {
-        const container = document.getElementById('progress-container');
-        const txt = document.getElementById('progress-text');
-        if (container) container.style.display = 'block';
-        if (txt) txt.innerText = message;
+    // A. Progreso y Carga
+    if (status === 'progress' || type === 'progress_update') {
+        handleProgress(percent, message);
     }
-
-    if (type === 'progress_update') {
-        const bar = document.getElementById('progress-bar');
-        if (bar) {
-            bar.style.width = `${percent.toFixed(1)}%`;
-            if (percent > 99) bar.style.backgroundColor = '#22c55e';
-            else bar.style.backgroundColor = '#6366f1';
-        }
-    }
-
-    if (status === 'complete') {
-        const container = document.getElementById('progress-container');
-        if (container) {
-            setTimeout(() => {
-                container.style.opacity = '0';
-                setTimeout(() => container.style.display = 'none', 500);
-            }, 1500);
-        }
-        addMessageToChat('system', '✅ Sistema cargado y listo.', 'info');
-    }
-
-    // 2. ESTADO
     if (status === 'ready') {
-        const statusMap = { 'asr': 'status-whisper', 'llm': 'status-llm', 'vlm': 'status-vision' };
+        const statusMap = { 'asr': 'status-whisper', 'llm': 'status-llm', 'vlm': 'status-vision', 'classifier': 'status-llm' }; // Classifier comparte status con LLM visualmente
         const el = document.getElementById(statusMap[task]);
-        if (el) {
-            el.classList.remove('disconnected', 'busy');
-            el.classList.add('connected');
-        }
+        if (el) el.classList.add('connected');
     }
 
-    // 3. TRANSCRIPCIÓN
+    // B. Resultado de Transcripción
     if (type === 'transcription_result') {
         const caption = document.getElementById('live-caption');
         if (caption) caption.innerText = text;
-        addMessageToChat('user', text);
-        agents.addToHistory('User', text);
+        // Procesamos como mensaje de usuario
+        handleUserMessage(text);
     }
 
-    // 4. RESULTADOS RAG
+    // C. Resultado del Orquestador (INTENCIÓN DETECTADA)
+    if (type === 'intent_result') {
+        addMessageToChat('system', `💡 Intención detectada: Sombrero ${hat.toUpperCase()} (${(confidence*100).toFixed(0)}%)`, hat);
+        // Activamos el agente correspondiente automáticamente
+        agents.triggerHat(hat); 
+    }
+
+    // D. RAG
     if (type === 'embedding_result') {
         if (id && id.startsWith('QUERY:')) {
             const originalQuery = id.split('QUERY:')[1];
             const results = rag.search(embedding, 3);
 
-            if (results.length > 0 && results[0].score > 0.3) {
+            if (results.length > 0 && results[0].score > 0.35) {
                 const bestChunk = results[0];
-                addMessageToChat('system', `📄 <b>Fuente (${(bestChunk.score * 100).toFixed(0)}%):</b><br>"...${bestChunk.text.substring(0, 120)}..."`, 'white');
-
-                const prompt = `Contexto: "${bestChunk.text}". Pregunta: "${originalQuery}". Usando el contexto, responde en español:`;
+                addMessageToChat('system', `📄 <b>Fuente:</b> "...${bestChunk.text.substring(0, 100)}..."`, 'white');
+                
+                // Prompt RAG Específico
+                const prompt = `Contexto: "${bestChunk.text}". Pregunta: "${originalQuery}". Responde basándote ÚNICAMENTE en el contexto.`;
                 worker.postMessage({ type: 'generate', data: { prompt, hat: 'white' } });
             } else {
-                addMessageToChat('system', '❌ No encontré esa información en el PDF.', 'warning');
+                // Si no encuentra nada, pasa al chat general
+                addMessageToChat('system', '❌ No hallado en PDF. Usando conocimiento general.', 'warning');
+                agents.triggerHat('blue', originalQuery);
             }
         } else {
             rag.handleEmbedding(id, embedding);
         }
     }
 
-    // 5. GENERACIÓN
+    // E. Generación de Texto (Agentes)
     if (type === 'generation_result') {
         addMessageToChat('bot', text, hat);
         agents.addToHistory('AI', text);
     }
 
-    // 6. VISIÓN
+    // F. Visión
     if (type === 'vision_result') {
-        addMessageToChat('bot', `👁️ ${text}`, 'blue');
-    }
-
-    // 7. DEBUG
-    if (type === 'debug') {
-        console.log(text);
-        if (text.includes('❌')) addMessageToChat('system', text, 'warning');
+        addMessageToChat('bot', `👁️ Análisis visual: ${text}`, 'blue');
     }
 };
 
-document.addEventListener('debug-image', (e) => {
-    addMessageToChat('system', `<img src="${e.detail}" style="max-height:100px; border:1px solid #555;">`, 'info');
-});
+// UI Helpers
+function handleProgress(percent, msg) {
+    const container = document.getElementById('progress-container');
+    const bar = document.getElementById('progress-bar');
+    const txt = document.getElementById('progress-text');
+    
+    if (container && msg) {
+        container.style.display = 'block';
+        txt.innerText = msg;
+    }
+    if (bar && percent) {
+        bar.style.width = `${percent}%`;
+    }
+    if (percent >= 100) {
+        setTimeout(() => container.style.display = 'none', 2000);
+    }
+}
 
 function addMessageToChat(role, text, hat = null) {
     const chatContainer = document.getElementById('chat-stream');
     const msgDiv = document.createElement('div');
+    const isSystem = role === 'system';
+    
+    msgDiv.className = `message ${role} ${hat ? 'hat-' + hat : ''}`;
+    
+    let content = text;
+    // Formateo simple de markdown negrita
+    content = content.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
 
-    if (role === 'system') {
-        msgDiv.className = `message system ${hat || ''}`;
-        msgDiv.innerHTML = `<div class="bubble system-bubble">${text}</div>`;
+    if (isSystem) {
+        msgDiv.innerHTML = `<div class="bubble system-bubble">${content}</div>`;
     } else {
-        msgDiv.className = `message ${role} ${hat ? 'hat-' + hat : ''}`;
         const avatar = role === 'user' ? '👤' : '🤖';
-        msgDiv.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble">${text}</div>`;
+        msgDiv.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble">${content}</div>`;
     }
+    
     chatContainer.appendChild(msgDiv);
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
-worker.postMessage({ type: 'load', model: 'all' });
+document.addEventListener('debug-image', (e) => {
+    addMessageToChat('system', `<img src="${e.detail}" style="max-height:100px; border-radius:8px;">`, 'info');
+});
+
+// Iniciar carga
+worker.postMessage({ type: 'load' });
