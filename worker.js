@@ -25,7 +25,7 @@ let vlm_model, vlm_processor, vlm_tokenizer; // Visión (Florence-2)
 // Estado
 let isProcessingAudio = false;
 
-// Callback de progreso
+// Callback de progreso (TU ORIGINAL)
 const progressCallback = (data) => {
     if (data.status === 'progress') {
         const percent = (data.loaded / data.total) * 100;
@@ -68,7 +68,7 @@ self.onmessage = async (e) => {
                 } catch (err) { console.warn("Fallo Whisper", err); }
             }
 
-            // 4. LLM DE TEXTO (Qwen 2.5)
+            // 4. LLM DE TEXTO (Qwen 2.5) - TU LÓGICA ORIGINAL
             const llm_id = 'onnx-community/Qwen2.5-0.5B-Instruct'; 
             
             if (!text_model) {
@@ -91,19 +91,37 @@ self.onmessage = async (e) => {
                 }
             }
 
-            // 5. VISIÓN (Florence-2)
+            // 5. VISIÓN (Florence-2) - LÓGICA SUSTITUIDA POR LA NUEVA
             if (!vlm_model) {
-                const vision_id = 'onnx-community/Florence-2-base-ft'; 
+                self.postMessage({ status: 'progress', message: 'Cargando Visión (Florence-2)...' });
+                const vision_id = 'onnx-community/Florence-2-base-ft'; // Modelo base robusto
+                
                 try {
                     vlm_processor = await AutoProcessor.from_pretrained(vision_id);
                     vlm_tokenizer = await AutoTokenizer.from_pretrained(vision_id);
-                    vlm_model = await Florence2ForConditionalGeneration.from_pretrained(vision_id, {
-                        dtype: "q4", 
-                        device: "wasm",
-                        progress_callback: progressCallback
-                    });
+                    
+                    try {
+                        // Intentamos cargar primero con WebGPU (fp16)
+                        vlm_model = await Florence2ForConditionalGeneration.from_pretrained(vision_id, {
+                            dtype: "fp16", 
+                            device: "webgpu",
+                            progress_callback: progressCallback
+                        });
+                    } catch (gpuErr) {
+                         console.warn("Fallo WebGPU Visión, usando CPU", gpuErr);
+                         // Fallback a WASM (q4) si falla WebGPU
+                         vlm_model = await Florence2ForConditionalGeneration.from_pretrained(vision_id, {
+                            dtype: "q4", 
+                            device: "wasm",
+                            progress_callback: progressCallback
+                        });
+                    }
                     self.postMessage({ status: 'ready', task: 'vlm' });
-                } catch (err) { console.error("Error Visión", err); }
+
+                } catch (err) {
+                    console.error("Error cargando Visión:", err);
+                    self.postMessage({ type: 'debug', text: "❌ Error fatal en módulo de visión." });
+                }
             }
 
             self.postMessage({ status: 'complete', message: 'Sistemas Listos' });
@@ -113,7 +131,7 @@ self.onmessage = async (e) => {
         }
     }
 
-    // --- GENERACIÓN (CORREGIDA) ---
+    // --- GENERACIÓN (TU ORIGINAL) ---
     if (type === 'generate') {
         if (!text_model || !text_tokenizer) return;
 
@@ -123,7 +141,6 @@ self.onmessage = async (e) => {
         ];
 
         try {
-            // CORRECCIÓN CLAVE: Usamos apply_chat_template para obtener inputs directamente
             const inputs = await text_tokenizer.apply_chat_template(messages, {
                 add_generation_prompt: true,
                 return_dict: true 
@@ -152,7 +169,7 @@ self.onmessage = async (e) => {
         }
     }
 
-    // --- CLASIFICACIÓN DE INTENCIÓN ---
+    // --- CLASIFICACIÓN DE INTENCIÓN (TU ORIGINAL) ---
     if (type === 'classify_intent') {
         if (!classifier_pipeline) return;
         const labels = ["datos objetivos", "emociones", "riesgos criticas", "beneficios", "ideas creatividad", "resumen control"];
@@ -161,7 +178,7 @@ self.onmessage = async (e) => {
         self.postMessage({ type: 'intent_result', hat: map[output.labels[0]], confidence: output.scores[0] });
     }
 
-    // --- RAG (EMBEDDINGS) ---
+    // --- RAG (EMBEDDINGS) (TU ORIGINAL) ---
     if (type === 'embed') {
         if (embed_pipeline) {
             const out = await embed_pipeline(data.text || data, { pooling: 'mean', normalize: true });
@@ -170,7 +187,7 @@ self.onmessage = async (e) => {
         }
     }
 
-    // --- AUDIO ---
+    // --- AUDIO (TU ORIGINAL) ---
     if (type === 'audio_chunk') {
         if (!asr_pipeline || isProcessingAudio) return;
         isProcessingAudio = true;
@@ -180,18 +197,31 @@ self.onmessage = async (e) => {
         } catch (e) {} finally { isProcessingAudio = false; }
     }
 
-    // --- VISIÓN ---
+    // --- VISIÓN (LÓGICA SUSTITUIDA POR LA NUEVA) ---
     if (type === 'vision') {
         if (!vlm_model) return;
         try {
             const image = await RawImage.read(data.image);
+            // Definimos la tarea específica para Florence-2
+            const task = '<MORE_DETAILED_CAPTION>'; 
+            const prompts = vlm_processor.construct_prompts(task);
+            const text_inputs = vlm_tokenizer(prompts);
             const vision_inputs = await vlm_processor(image);
+            
             const generated_ids = await vlm_model.generate({
+                ...text_inputs,
                 pixel_values: vision_inputs.pixel_values,
                 max_new_tokens: 100,
             });
-            const text = vlm_tokenizer.batch_decode(generated_ids, { skip_special_tokens: true })[0];
-            self.postMessage({ type: 'vision_result', text });
-        } catch (e) { console.error(e); }
+
+            // Decodificación y post-procesado correcto
+            const generated_text = vlm_tokenizer.batch_decode(generated_ids, { skip_special_tokens: false })[0];
+            const result = vlm_processor.post_process_generation(generated_text, task, image.size);
+            
+            self.postMessage({ type: 'vision_result', text: result['<MORE_DETAILED_CAPTION>'] });
+        } catch (err) { 
+            console.error(err); 
+            self.postMessage({ type: 'vision_result', text: "Error analizando imagen." });
+        }
     }
 };
