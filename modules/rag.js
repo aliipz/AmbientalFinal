@@ -2,15 +2,16 @@ export class RAGModule {
     constructor(worker) {
         this.worker = worker;
         this.documents = []; 
-        this.chunkSize = 600; // Aumentado ligeramente para mejor contexto
-        this.overlap = 150;   // Solapamiento para no perder frases en el corte
-        
+        this.chunkSize = 150; // Palabras por chunk
+        this.overlap = 30;    // Solapamiento de palabras
         this.setupDragDrop();
     }
 
     setupDragDrop() {
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('file-input');
+        
+        if (!dropZone || !fileInput) return;
 
         dropZone.addEventListener('click', () => fileInput.click());
 
@@ -42,21 +43,22 @@ export class RAGModule {
         const docItem = document.createElement('div');
         docItem.className = 'status-item';
         docItem.innerHTML = `<span>${file.name}</span> <span class="status-dot busy"></span>`;
-        docList.appendChild(docItem);
+        if (docList) docList.appendChild(docItem);
 
         try {
             const text = await this.extractTextFromPDF(file);
-            console.log("Texto extraído, longitud:", text.length);
+            console.log(`Texto extraído (${text.length} caracteres).`);
 
-            // Usamos la nueva función con overlap
             const chunks = this.chunkText(text, this.chunkSize, this.overlap);
+            console.log(`Generados ${chunks.length} chunks.`);
 
             const docId = Date.now().toString();
             const documentEntry = {
                 id: docId,
                 name: file.name,
                 chunks: chunks.map((txt, i) => ({ id: `${docId}_${i}`, text: txt, vector: null })),
-                isReady: false
+                isReady: false,
+                uiElement: docItem
             };
             this.documents.push(documentEntry);
 
@@ -68,18 +70,15 @@ export class RAGModule {
                 });
             }
 
-            // Referencia visual para actualizar cuando termine
-            documentEntry.uiElement = docItem;
-
         } catch (err) {
-            console.error("Error PDF:", err);
+            console.error("Error procesando PDF:", err);
             docItem.querySelector('.status-dot').className = 'status-dot error';
         }
     }
 
     async extractTextFromPDF(file) {
         const arrayBuffer = await file.arrayBuffer();
-        // Asumimos que pdfjsLib está cargado en el HTML globalmente
+        // pdfjsLib debe estar disponible globalmente en index.html
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
         let fullText = '';
 
@@ -87,25 +86,24 @@ export class RAGModule {
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
             const pageText = textContent.items.map(item => item.str).join(' ');
-            fullText += pageText + ' ';
+            // Importante: Salto de línea entre páginas para separar contextos
+            fullText += pageText + ' \n ';
         }
-        return fullText.replace(/\s+/g, ' ').trim(); // Limpieza básica
+        // Limpiar espacios múltiples
+        return fullText.replace(/\s+/g, ' ').trim();
     }
 
-    // MEJORA: Chunking con solapamiento
-    chunkText(text, size, overlap) {
+    // Chunking inteligente por palabras
+    chunkText(text, wordsPerChunk, wordsOverlap) {
+        const words = text.split(/\s+/); 
         const chunks = [];
-        let start = 0;
         
-        while (start < text.length) {
-            const end = Math.min(start + size, text.length);
-            chunks.push(text.slice(start, end));
-            
-            // Avanzamos size - overlap para crear el solapamiento
-            start += (size - overlap);
-            
-            // Evitar bucles infinitos al final
-            if (start >= text.length) break;
+        for (let i = 0; i < words.length; i += (wordsPerChunk - wordsOverlap)) {
+            const chunkWords = words.slice(i, i + wordsPerChunk);
+            if (chunkWords.length > 10) { // Ignorar chunks muy pequeños
+                chunks.push(chunkWords.join(' '));
+            }
+            if (chunkWords.length < wordsPerChunk) break;
         }
         return chunks;
     }
@@ -121,10 +119,8 @@ export class RAGModule {
             if (doc.chunks.every(c => c.vector !== null) && !doc.isReady) {
                 doc.isReady = true;
                 this.updateDocCount();
-                if (doc.uiElement) {
-                    const dot = doc.uiElement.querySelector('.status-dot');
-                    dot.className = 'status-dot connected'; // Verde
-                }
+                const dot = doc.uiElement.querySelector('.status-dot');
+                if (dot) dot.className = 'status-dot connected'; // Luz verde
             }
         }
     }
