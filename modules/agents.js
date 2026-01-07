@@ -3,7 +3,7 @@ export class AgentModule {
         this.worker = worker;
         this.rag = ragModule;
         this.conversationHistory = [];
-        this.isAutoMode = false;
+        this.isAutoMode = true;
 
         // PROMPTS ESPAÑOL
         this.hatPrompts = {
@@ -31,7 +31,7 @@ export class AgentModule {
             autoBtn.addEventListener('click', () => {
                 this.isAutoMode = !this.isAutoMode;
                 autoBtn.classList.toggle('active');
-                if (this.isAutoMode) alert("Modo Auto activado: La IA intervendrá aleatoriamente.");
+                if (this.isAutoMode) alert("Modo Auto activado: La IA analizará tu intención.");
             });
         }
     }
@@ -39,14 +39,8 @@ export class AgentModule {
     addToHistory(role, text) {
         this.conversationHistory.push(`${role}: ${text}`);
         if (this.conversationHistory.length > 5) this.conversationHistory.shift();
-
-        if (this.isAutoMode && role === 'User') {
-            if (Math.random() > 0.6) {
-                const hats = ['black', 'green', 'yellow'];
-                const randomHat = hats[Math.floor(Math.random() * hats.length)];
-                setTimeout(() => this.triggerHat(randomHat), 1500);
-            }
-        }
+        
+        // Se eliminó la lógica aleatoria (Math.random) para evitar intervenciones sin sentido.
     }
 
     async triggerHat(hat) {

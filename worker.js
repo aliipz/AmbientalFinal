@@ -25,7 +25,7 @@ let vlm_model, vlm_processor, vlm_tokenizer; // Visión (Florence-2)
 // Estado
 let isProcessingAudio = false;
 
-// Callback de progreso (TU ORIGINAL)
+// Callback de progreso
 const progressCallback = (data) => {
     if (data.status === 'progress') {
         const percent = (data.loaded / data.total) * 100;
@@ -63,12 +63,12 @@ self.onmessage = async (e) => {
             // 3. AUDIO (Whisper)
             if (!asr_pipeline) {
                 try {
-                    asr_pipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny');
+                    asr_pipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base');
                     self.postMessage({ status: 'ready', task: 'asr' });
                 } catch (err) { console.warn("Fallo Whisper", err); }
             }
 
-            // 4. LLM DE TEXTO (Qwen 2.5) - TU LÓGICA ORIGINAL
+            // 4. LLM DE TEXTO (Qwen 2.5)
             const llm_id = 'onnx-community/Qwen2.5-0.5B-Instruct'; 
             
             if (!text_model) {
@@ -91,10 +91,10 @@ self.onmessage = async (e) => {
                 }
             }
 
-            // 5. VISIÓN (Florence-2) - LÓGICA SUSTITUIDA POR LA NUEVA
+            // 5. VISIÓN (Florence-2)
             if (!vlm_model) {
                 self.postMessage({ status: 'progress', message: 'Cargando Visión (Florence-2)...' });
-                const vision_id = 'onnx-community/Florence-2-base-ft'; // Modelo base robusto
+                const vision_id = 'onnx-community/Florence-2-base-ft'; 
                 
                 try {
                     vlm_processor = await AutoProcessor.from_pretrained(vision_id);
@@ -131,7 +131,7 @@ self.onmessage = async (e) => {
         }
     }
 
-    // --- GENERACIÓN (TU ORIGINAL) ---
+    // --- GENERACIÓN ---
     if (type === 'generate') {
         if (!text_model || !text_tokenizer) return;
 
@@ -149,7 +149,7 @@ self.onmessage = async (e) => {
             const outputs = await text_model.generate({
                 ...inputs,
                 max_new_tokens: 256,
-                do_sample: false, // Determinista para respuestas más precisas
+                do_sample: false, 
                 temperature: 0.1,
             });
 
@@ -169,25 +169,43 @@ self.onmessage = async (e) => {
         }
     }
 
-    // --- CLASIFICACIÓN DE INTENCIÓN (TU ORIGINAL) ---
+    // --- CLASIFICACIÓN DE INTENCIÓN (OPTIMIZADA) ---
     if (type === 'classify_intent') {
         if (!classifier_pipeline) return;
-        const labels = ["datos objetivos", "emociones", "riesgos criticas", "beneficios", "ideas creatividad", "resumen control"];
+        
+        // Etiquetas optimizadas para distinguir mejor 'riesgos' de 'beneficios'
+        const labels = [
+            "hechos datos objetivos", 
+            "emociones sentimientos", 
+            "riesgos problemas cautela", 
+            "beneficios valor positivo", 
+            "creatividad ideas nuevas", 
+            "resumen organización control"
+        ];
+        
         const output = await classifier_pipeline(data.text, labels, { multi_label: false });
-        const map = { "datos objetivos": "white", "emociones": "red", "riesgos criticas": "black", "beneficios": "yellow", "ideas creatividad": "green", "resumen control": "blue" };
+        
+        const map = { 
+            "hechos datos objetivos": "white", 
+            "emociones sentimientos": "red", 
+            "riesgos problemas cautela": "black", 
+            "beneficios valor positivo": "yellow", 
+            "creatividad ideas nuevas": "green", 
+            "resumen organización control": "blue" 
+        };
+        
         self.postMessage({ type: 'intent_result', hat: map[output.labels[0]], confidence: output.scores[0] });
     }
 
-    // --- RAG (EMBEDDINGS) (TU ORIGINAL) ---
+    // --- RAG (EMBEDDINGS) ---
     if (type === 'embed') {
         if (embed_pipeline) {
             const out = await embed_pipeline(data.text || data, { pooling: 'mean', normalize: true });
-            // Devolvemos el ID correctamente
             self.postMessage({ type: 'embedding_result', embedding: out.data, id: data.id });
         }
     }
 
-    // --- AUDIO (TU ORIGINAL) ---
+    // --- AUDIO ---
     if (type === 'audio_chunk') {
         if (!asr_pipeline || isProcessingAudio) return;
         isProcessingAudio = true;
@@ -197,12 +215,11 @@ self.onmessage = async (e) => {
         } catch (e) {} finally { isProcessingAudio = false; }
     }
 
-    // --- VISIÓN (LÓGICA SUSTITUIDA POR LA NUEVA) ---
+    // --- VISIÓN ---
     if (type === 'vision') {
         if (!vlm_model) return;
         try {
             const image = await RawImage.read(data.image);
-            // Definimos la tarea específica para Florence-2
             const task = '<MORE_DETAILED_CAPTION>'; 
             const prompts = vlm_processor.construct_prompts(task);
             const text_inputs = vlm_tokenizer(prompts);
@@ -214,7 +231,6 @@ self.onmessage = async (e) => {
                 max_new_tokens: 100,
             });
 
-            // Decodificación y post-procesado correcto
             const generated_text = vlm_tokenizer.batch_decode(generated_ids, { skip_special_tokens: false })[0];
             const result = vlm_processor.post_process_generation(generated_text, task, image.size);
             
