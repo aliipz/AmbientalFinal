@@ -175,23 +175,23 @@ self.onmessage = async (e) => {
         
         // Etiquetas optimizadas para distinguir mejor 'riesgos' de 'beneficios'
         const labels = [
-            "hechos datos objetivos", 
-            "emociones sentimientos", 
-            "riesgos problemas cautela", 
-            "beneficios valor positivo", 
-            "creatividad ideas nuevas", 
-            "resumen organización control"
+            "buscar datos objetivos y hechos",        // White
+            "expresar una reacción emocional intensa, sentimiento subjetivo o corazonada irracional",       // Red
+            "advertir sobre un riesgo, peligro o problema fatal", // Black
+            "defender la idea actual y listar sus ventajas o beneficios",  // Yellow
+            "proponer una alternativa diferente, solución nueva o cambio innovador",   // Green
+            "moderar la reunión, cambiar de tema o pedir conclusiones",           // Blue
         ];
         
         const output = await classifier_pipeline(data.text, labels, { multi_label: false });
         
         const map = { 
-            "hechos datos objetivos": "white", 
-            "emociones sentimientos": "red", 
-            "riesgos problemas cautela": "black", 
-            "beneficios valor positivo": "yellow", 
-            "creatividad ideas nuevas": "green", 
-            "resumen organización control": "blue" 
+            "buscar datos objetivos y hechos": "white", 
+            "expresar una reacción emocional intensa, sentimiento subjetivo o corazonada irracional": "red", 
+            "advertir sobre un riesgo, peligro o problema fatal": "black", 
+            "defender la idea actual y listar sus ventajas o beneficios": "yellow", 
+            "proponer una alternativa diferente, solución nueva o cambio innovador": "green", 
+            "moderar la reunión, cambiar de tema o pedir conclusiones": "blue",
         };
         
         self.postMessage({ type: 'intent_result', hat: map[output.labels[0]], confidence: output.scores[0] });

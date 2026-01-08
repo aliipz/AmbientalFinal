@@ -88,8 +88,12 @@ worker.onmessage = (e) => {
 
     // C. Orquestador
     if (type === 'intent_result') {
-        addMessageToChat('system', `💡 Intención: Sombrero ${hat.toUpperCase()} (${(confidence*100).toFixed(0)}%)`, hat);
-        agents.triggerHat(hat); 
+        const safeHat = (typeof hat === 'string' && hat) ? hat : null;
+        const hatLabel = safeHat ? safeHat.toUpperCase() : 'DESCONOCIDO';
+        const confPct = (typeof confidence === 'number') ? (confidence * 100).toFixed(0) : '0';
+
+        addMessageToChat('system', `💡 Intención: Sombrero ${hatLabel} (${confPct}%)`, safeHat);
+        if (safeHat) agents.triggerHat(safeHat);
     }
 
     // D. RAG (Mejorado)
