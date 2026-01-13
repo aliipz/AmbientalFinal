@@ -52,9 +52,9 @@ const handleUserMessage = (inputText = null) => {
     if (hasDocuments) {
         addMessageToChat('system', '🔍 Buscando en documentos...', 'info');
         // CORRECCIÓN: Enviamos 'id' dentro de 'data'
-        worker.postMessage({ 
-            type: 'embed', 
-            data: { text: text, id: `QUERY:${text}` } 
+        worker.postMessage({
+            type: 'embed',
+            data: { text: text, id: `QUERY:${text}` }
         });
     } else {
         // 3. Chat General
@@ -88,37 +88,48 @@ worker.onmessage = (e) => {
 
     // C. Orquestador
     if (type === 'intent_result') {
-        const safeHat = (typeof hat === 'string' && hat) ? hat : null;
-        const hatLabel = safeHat ? safeHat.toUpperCase() : 'DESCONOCIDO';
-        const confPct = (typeof confidence === 'number') ? (confidence * 100).toFixed(0) : '0';
-
-        addMessageToChat('system', `💡 Intención: Sombrero ${hatLabel} (${confPct}%)`, safeHat);
-        if (safeHat) agents.triggerHat(safeHat);
+        addMessageToChat('system', `💡 Intención: Sombrero ${hat.toUpperCase()} (${(confidence * 100).toFixed(0)}%)`, hat);
+        agents.triggerHat(hat);
     }
 
     // D. RAG (Mejorado)
     if (type === 'embedding_result') {
         // Verificamos que sea una respuesta a una pregunta y no un chunk
-        if (id && typeof id === 'string' && id.startsWith('QUERY:')) {
-            const originalQuery = id.split('QUERY:')[1];
-            const results = rag.search(embedding, 3); // Top 3 resultados
+        if (id && typeof id === 'string' && (id.startsWith('QUERY:') || id.startsWith('QUERY_RAG:'))) {
+            const isRagSpecific = id.startsWith('QUERY_RAG:');
+            const prefix = isRagSpecific ? 'QUERY_RAG:' : 'QUERY:';
+            const originalQuery = id.split(prefix)[1];
+
+            const results = rag.search(originalQuery, embedding, 3); // Top 3 resultados (Híbrido)
 
             if (results.length > 0 && results[0].score > 0.25) {
                 const bestChunk = results[0];
-                
+
                 // Feedback visual de lo encontrado
-                addMessageToChat('system', `📄 <b>Encontrado en PDF:</b> "...${bestChunk.text.substring(0, 100)}..."`, 'white');
-                
+                // Feedback visual de lo encontrado
+                addMessageToChat('system', `📄 <b>Encontrado en PDF (${(results[0].score * 100).toFixed(0)}%):</b><br>"${bestChunk.text}"`, 'white');
+
                 // Prompt específico para que el modelo conteste usando el contexto
-                const prompt = `Instrucción: Usa el siguiente CONTEXTO para responder a la PREGUNTA.
-CONTEXTO: "${bestChunk.text}"
-PREGUNTA: "${originalQuery}"
-RESPUESTA:`;
-                
+                const prompt = `Contexto del Documento: "${bestChunk.text}"
+Pregunta del Usuario: "${originalQuery}"
+Instrucción: Como Sombrero Blanco, responde a la pregunta basándote SOLAMENTE en el contexto proporcionado. Sé objetivo.
+Respuesta:`;
+
                 worker.postMessage({ type: 'generate', data: { prompt, hat: 'white' } });
             } else {
-                addMessageToChat('system', '⚠️ No encontrado en documentos. Usando conocimiento general.', 'warning');
-                agents.triggerHat('blue', originalQuery);
+                if (isRagSpecific) {
+                    addMessageToChat('system', '⚠️ No encontrado en documentos. Usando conocimiento general.', 'warning');
+                    // Fallback a generación normal sin contexto pero como sombrero blanco
+                    // Llamamos manualmente a worker.generate simulando que agents.js lo envió
+                    const promptFallback = `Contexto: Brainstorming.
+Entrada: "${originalQuery}"
+Instrucción: El usuario preguntó esto buscando datos, pero no hay documentos. Como Sombrero Blanco, responde con un dato objetivo general.
+Respuesta:`;
+                    worker.postMessage({ type: 'generate', data: { prompt: promptFallback, hat: 'white' } });
+                } else {
+                    // Fallback antiguo (probablemente no se usa ya)
+                    agents.triggerHat('blue', originalQuery);
+                }
             }
         } else if (id) {
             // Es un chunk de un documento cargándose
@@ -143,7 +154,7 @@ function handleProgress(percent, msg) {
     const container = document.getElementById('progress-container');
     const bar = document.getElementById('progress-bar');
     const txt = document.getElementById('progress-text');
-    
+
     if (container && msg) {
         container.style.display = 'block';
         txt.innerText = msg;
@@ -160,7 +171,7 @@ function addMessageToChat(role, text, hat = null) {
     const chatContainer = document.getElementById('chat-stream');
     const msgDiv = document.createElement('div');
     const isSystem = role === 'system';
-    
+
     msgDiv.className = `message ${role} ${hat ? 'hat-' + hat : ''}`;
     let content = text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
 
