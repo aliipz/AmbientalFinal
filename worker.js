@@ -216,28 +216,37 @@ self.onmessage = async (e) => {
     }
 
     // --- VISIÓN ---
-    if (type === 'vision') {
-        if (!vlm_model) return;
-        try {
-            const image = await RawImage.read(data.image);
-            const task = '<MORE_DETAILED_CAPTION>'; 
-            const prompts = vlm_processor.construct_prompts(task);
-            const text_inputs = vlm_tokenizer(prompts);
-            const vision_inputs = await vlm_processor(image);
-            
-            const generated_ids = await vlm_model.generate({
-                ...text_inputs,
-                pixel_values: vision_inputs.pixel_values,
-                max_new_tokens: 100,
-            });
+    if (type === 'vision_result') {
+        // Notificación visual rápida (opcional)
+        addMessageToChat('system', '👁️ Analizando imagen desde múltiples perspectivas...', 'info');
 
-            const generated_text = vlm_tokenizer.batch_decode(generated_ids, { skip_special_tokens: false })[0];
-            const result = vlm_processor.post_process_generation(generated_text, task, image.size);
-            
-            self.postMessage({ type: 'vision_result', text: result['<MORE_DETAILED_CAPTION>'] });
-        } catch (err) { 
-            console.error(err); 
-            self.postMessage({ type: 'vision_result', text: "Error analizando imagen." });
-        }
+        // 1. LANZAR SOMBRERO BLANCO (Objetividad)
+        // Pedimos traducción y descripción pura.
+        const promptWhite = `CONTEXTO: La visión artificial detectó esto (en inglés): "${text}".
+        TAREA: Actúa como Sombrero Blanco.
+        1. Traduce la descripción al español.
+        2. Describe OBJETIVAMENTE qué elementos ves en el dibujo.
+        3. Sé breve y no des opiniones.`;
+
+        worker.postMessage({ 
+            type: 'generate', 
+            data: { prompt: promptWhite, hat: 'white' } 
+        });
+
+        // 2. LANZAR SOMBRERO VERDE (Creatividad)
+        // Pedimos ideas sobre lo mismo, aprovechando el contexto.
+        const promptGreen = `CONTEXTO VISUAL: "${text}".
+        TAREA: Actúa como Sombrero Verde.
+        1. Ignora la descripción técnica.
+        2. Propón una idea innovadora, una mejora creativa o un uso alternativo para este dibujo.
+        3. Sorpréndeme.`;
+
+        // Pequeño retraso para que no salgan desordenados (opcional pero recomendado)
+        setTimeout(() => {
+            worker.postMessage({ 
+                type: 'generate', 
+                data: { prompt: promptGreen, hat: 'green' } 
+            });
+        }, 500);
     }
 };
